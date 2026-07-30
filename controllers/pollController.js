@@ -1,5 +1,5 @@
 import { Op } from "sequelize";
-import { Poll, PollOption, Vote, Comment, User, Bookmark, Follow } from "../models/index.js";
+import { Poll, PollOption, Vote, Comment, User, Bookmark, Follow, Notification } from "../models/index.js";
 import { uploadToCloudinary } from "../config/cloudinary.js";
 
 const pollIncludes = [
@@ -34,10 +34,13 @@ export const createPoll = async (req, res) => {
       options = [{ text: "Yes" }, { text: "No" }];
     }
 
-    // handle option image uploads for "image" type polls (fields named option_0, option_1, ...)
-    if (type === "image" && req.files && req.files.length) {
-      for (const file of req.files) {
-        const idx = Number(file.fieldname.replace("option_", ""));
+    // handle option image uploads for "image" type polls.
+    // with upload.fields(), req.files is an object like { option_0: [file], option_1: [file] }
+    if (type === "image" && req.files) {
+      for (const [fieldName, files] of Object.entries(req.files)) {
+        const file = files?.[0];
+        if (!file) continue;
+        const idx = Number(fieldName.replace("option_", ""));
         try {
           const url = await uploadToCloudinary(file.buffer);
           if (options[idx]) options[idx].image = url;
@@ -171,6 +174,16 @@ export const votePoll = async (req, res) => {
       await existing.save();
     } else {
       await Vote.create({ pollId: poll.id, userId: req.userId, value: String(value) });
+
+      // notify the poll's owner about the new vote - never notify yourself
+      if (poll.creatorId !== req.userId) {
+        await Notification.create({
+          recipientId: poll.creatorId,
+          actorId: req.userId,
+          pollId: poll.id,
+          type: "vote",
+        });
+      }
     }
 
     const updated = await Poll.findByPk(poll.id, { include: pollIncludes });
