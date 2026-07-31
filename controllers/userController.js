@@ -38,6 +38,7 @@ export const register = async (req, res) => {
     }
 
     const otp = generateOtp();
+    console.log(`🔑 [OTP GENERATED] for ${email}: ${otp}`);
 
     if (exist) {
       // If user exists but is NOT verified, allow re-registration / updating details & sending new OTP
@@ -116,7 +117,9 @@ export const resendOtp = async (req, res) => {
     const user = await User.findOne({ where: { email: req.body.email } });
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    user.otp = generateOtp();
+    const otp = generateOtp();
+    console.log(`🔑 [OTP GENERATED (RESEND)] for ${user.email}: ${otp}`);
+    user.otp = otp;
     user.otpExpires = otpExpiry();
     await user.save();
 
@@ -144,7 +147,9 @@ export const login = async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password" });
     }
     if (!user.isVerified) {
-      user.otp = generateOtp();
+      const otp = generateOtp();
+      console.log(`🔑 [OTP GENERATED (LOGIN)] for ${email}: ${otp}`);
+      user.otp = otp;
       user.otpExpires = otpExpiry();
       await user.save();
 

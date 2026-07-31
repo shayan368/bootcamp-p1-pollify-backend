@@ -1,23 +1,39 @@
 import nodemailer from "nodemailer";
 
-const port = Number(process.env.SMTP_PORT) || 465;
+const host = process.env.SMTP_HOST || "smtp.gmail.com";
+const isGmail = host.includes("gmail");
 
-// transporter with explicit timeouts and SSL/TLS configuration
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.gmail.com",
-  port: port,
-  secure: port === 465,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-  connectionTimeout: 10000, // 10 seconds max connection timeout
-  greetingTimeout: 5000,
-  socketTimeout: 15000,
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
+// Transporter configured with family: 4 to force IPv4 (prevents Railway IPv6 connection timeouts)
+const transporter = nodemailer.createTransport(
+  isGmail
+    ? {
+        service: "gmail",
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS?.replace(/\s+/g, ""), // remove any spaces from app password
+        },
+        family: 4, // FORCE IPv4 to avoid IPv6 timeout on cloud containers
+        connectionTimeout: 15000,
+        greetingTimeout: 10000,
+        socketTimeout: 20000,
+      }
+    : {
+        host: host,
+        port: Number(process.env.SMTP_PORT) || 587,
+        secure: Number(process.env.SMTP_PORT) === 465,
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        },
+        family: 4, // FORCE IPv4
+        connectionTimeout: 15000,
+        greetingTimeout: 10000,
+        socketTimeout: 20000,
+        tls: {
+          rejectUnauthorized: false,
+        },
+      }
+);
 
 // verify SMTP configuration on startup
 transporter.verify((error) => {
@@ -47,4 +63,5 @@ export const sendOtpEmail = async (to, otp, reason = "verify your email") => {
       </div>`,
   });
 };
+
 
