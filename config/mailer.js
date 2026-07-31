@@ -45,7 +45,7 @@ if (!process.env.RESEND_API_KEY && process.env.SMTP_USER && process.env.SMTP_PAS
   });
 }
 
-// Send 6 digit OTP via email (Supports Resend HTTP API on port 443 and Nodemailer SMTP)
+// Send 6 digit OTP via email (Supports Brevo HTTP API, Resend HTTP API, and Nodemailer SMTP fallback)
 export const sendOtpEmail = async (to, otp, reason = "verify your email") => {
   const htmlContent = `
     <div style="font-family:Inter,Arial,sans-serif;max-width:440px;margin:auto;padding:24px;border:1px solid #e2e8f0;border-radius:16px">
@@ -55,7 +55,37 @@ export const sendOtpEmail = async (to, otp, reason = "verify your email") => {
       <p style="color:#94a3b8;font-size:13px">This code expires in 10 minutes. If you didn't request it, ignore this email.</p>
     </div>`;
 
-  // 1. Preferred for Cloud Hosts (Railway/Vercel): Resend HTTPS API (Port 443 - Never blocked)
+  // 1. Brevo HTTP API over Port 443 (HTTPS - Never blocked by Railway)
+  const brevoApiKey = process.env.BREVO_API_KEY || (process.env.SMTP_HOST?.includes("brevo") ? process.env.SMTP_PASS : null);
+  if (brevoApiKey) {
+    try {
+      const senderEmail = process.env.EMAIL_FROM || "shayanahmad368@gmail.com";
+      const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "api-key": brevoApiKey,
+        },
+        body: JSON.stringify({
+          sender: { name: "Pollify", email: senderEmail },
+          to: [{ email: to }],
+          subject: `${otp} is your Pollify code`,
+          htmlContent: htmlContent,
+        }),
+      });
+
+      if (response.ok) {
+        console.log(`✉️ OTP Email sent successfully via Brevo HTTP API to ${to}`);
+        return;
+      }
+      const errData = await response.json().catch(() => ({}));
+      console.warn("⚠️ Brevo HTTP API attempt notice:", errData.message || response.statusText);
+    } catch (e) {
+      console.warn("⚠️ Brevo HTTP API failed:", e.message);
+    }
+  }
+
+  // 2. Resend HTTPS API (Port 443)
   if (process.env.RESEND_API_KEY) {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -80,9 +110,9 @@ export const sendOtpEmail = async (to, otp, reason = "verify your email") => {
     return;
   }
 
-  // 2. Fallback: Nodemailer SMTP
+  // 3. Fallback: Nodemailer SMTP (Port 587 / 465)
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    throw new Error("Neither RESEND_API_KEY nor SMTP_USER/SMTP_PASS are configured in environment variables.");
+    throw new Error("No valid email provider (Brevo API, Resend, or SMTP) configured.");
   }
 
   await transporter.sendMail({
