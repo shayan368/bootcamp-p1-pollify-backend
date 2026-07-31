@@ -8,7 +8,6 @@ import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import pollRoutes from "./routes/pollRoutes.js";
 import commentRoutes from "./routes/commentRoutes.js";
-import notificationRoutes from "./routes/notificationRoutes.js";
 
 const PORT = process.env.PORT || 5000;
 const app = express();
@@ -26,7 +25,6 @@ app.use("/api/auth", authRoutes); // register/login/verify-otp/resend-otp
 app.use("/api/users", userRoutes); // me/:username/profile/change-password/follow/bookmarks
 app.use("/api/polls", pollRoutes);
 app.use("/api/comments", commentRoutes);
-app.use("/api/notifications", notificationRoutes);
 
 app.get("/", (req, res) => {
   res.send("Pollify API is running");

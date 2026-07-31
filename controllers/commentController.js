@@ -1,4 +1,4 @@
-import { Comment, User, Poll, Notification } from "../models/index.js";
+import { Comment, User } from "../models/index.js";
 
 // @route POST /api/polls/:pollId/comments
 export const addComment = async (req, res) => {
@@ -16,17 +16,6 @@ export const addComment = async (req, res) => {
     const populated = await Comment.findByPk(comment.id, {
       include: [{ model: User, as: "user", attributes: ["id", "name", "username", "avatar"] }],
     });
-
-    // notify the poll's owner about the new comment - never notify yourself
-    const poll = await Poll.findByPk(req.params.pollId, { attributes: ["id", "creatorId"] });
-    if (poll && poll.creatorId !== req.userId) {
-      await Notification.create({
-        recipientId: poll.creatorId,
-        actorId: req.userId,
-        pollId: poll.id,
-        type: "comment",
-      });
-    }
 
     res.status(201).json({ comment: populated });
   } catch (err) {

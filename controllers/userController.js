@@ -17,104 +17,45 @@ const clean = (u) => ({
   bio: u.bio,
 });
 
-const normalizeEmail = (value) => (value || "").trim().toLowerCase();
-const normalizeUsername = (value) => (value || "").trim().toLowerCase();
-
-const sendVerificationEmail = async (user, otp, context) => {
-  console.log(`[auth/${context}] sending OTP email`, { email: user.email });
-  try {
-    const info = await sendOtpEmail(user.email, otp, "verify your Pollify account");
-    console.log(`[auth/${context}] OTP email sent`, {
-      email: user.email,
-      messageId: info?.messageId || "n/a",
-    });
-    return { ok: true };
-  } catch (err) {
-    console.error(`[auth/${context}] OTP email failed`, {
-      email: user.email,
-      message: err.message,
-    });
-    return { ok: false, error: err.message };
-  }
-};
-
 // @route POST /api/auth/register
 // register a user and send an otp to their email
 export const register = async (req, res) => {
   try {
-    const name = (req.body.name || "").trim();
-    const email = normalizeEmail(req.body.email);
-    const username = normalizeUsername(req.body.username);
-    const password = req.body.password;
-
-    console.log("[auth/register] started", { email });
-
+    const { name, email, username, password } = req.body;
     if (!name || !email || !username || !password) {
       return res.status(400).json({ message: "All fields are required" });
     }
 
-    if (String(password).length < 8) {
-      return res.status(400).json({ message: "Password must be at least 8 characters" });
+    const exist = await User.findOne({ where: { [Op.or]: [{ email }, { username }] } });
+    if (exist) {
+      return res.status(400).json({ message: "Email or username already taken" });
     }
 
-    const existingByEmail = await User.findOne({ where: { email } });
-    const existingByUsername = await User.findOne({ where: { username } });
-
-    if (existingByEmail && existingByUsername && existingByEmail.id !== existingByUsername.id) {
-      return res.status(409).json({ message: "Email or username already taken" });
-    }
-
-    const existingUser = existingByEmail || existingByUsername;
-    if (existingUser) {
-      if (existingUser.isVerified) {
-        return res.status(409).json({ message: "Email or username already taken" });
+    let avatar = "";
+    if (req.file) {
+      try {
+        avatar = await uploadToCloudinary(req.file.buffer);
+      } catch (e) {
+        console.warn("Avatar upload skipped:", e.message);
       }
-
-      console.log("[auth/register] found existing unverified user", { email: existingUser.email });
-      const otp = generateOtp();
-      existingUser.otp = otp;
-      existingUser.otpExpires = otpExpiry();
-      existingUser.isVerified = false;
-      await existingUser.save();
-
-      const emailResult = await sendVerificationEmail(existingUser, otp, "register");
-      if (!emailResult.ok) {
-        return res.status(200).json({
-          needsVerification: true,
-          email: existingUser.email,
-          message: "We could not send the verification email right now. Please try again.",
-        });
-      }
-
-      return res.status(200).json({ needsVerification: true, email: existingUser.email });
     }
 
     const otp = generateOtp();
-    const user = await User.create({
+    await User.create({
       name,
       email,
       username,
       password,
+      avatar,
       otp,
       otpExpires: otpExpiry(),
     });
 
-    console.log("[auth/register] created new user", { id: user.id, email: user.email });
-    const emailResult = await sendVerificationEmail(user, otp, "register");
-    if (!emailResult.ok) {
-      return res.status(200).json({
-        needsVerification: true,
-        email: user.email,
-        message: "We could not send the verification email right now. Please try again.",
-      });
-    }
+    await sendOtpEmail(email, otp, "verify your Pollify account");
 
-    return res.status(201).json({ needsVerification: true, email: user.email });
+    res.status(201).json({ needsVerification: true, email });
   } catch (err) {
-    console.error("[auth/register] unexpected error", { message: err.message });
-    if (!res.headersSent) {
-      return res.status(500).json({ message: "Registration failed. Please try again." });
-    }
+    res.status(500).json({ message: err.message });
   }
 };
 
@@ -143,30 +84,17 @@ export const verifyOtp = async (req, res) => {
 // @route POST /api/auth/resend-otp
 export const resendOtp = async (req, res) => {
   try {
-    const email = normalizeEmail(req.body.email);
-    console.log("[auth/resend-otp] started", { email });
-
-    const user = await User.findOne({ where: { email } });
+    const user = await User.findOne({ where: { email: req.body.email } });
     if (!user) return res.status(404).json({ message: "User not found" });
 
     user.otp = generateOtp();
     user.otpExpires = otpExpiry();
     await user.save();
 
-    console.log("[auth/resend-otp] OTP updated", { email: user.email });
-    const emailResult = await sendVerificationEmail(user, user.otp, "resend-otp");
-    if (!emailResult.ok) {
-      return res.status(200).json({
-        needsVerification: true,
-        email: user.email,
-        message: "We could not send the verification email right now. Please try again.",
-      });
-    }
-
-    return res.json({ message: "OTP sent", needsVerification: true, email: user.email });
+    await sendOtpEmail(user.email, user.otp, "verify your Pollify account");
+    res.json({ message: "OTP sent" });
   } catch (err) {
-    console.error("[auth/resend-otp] unexpected error", { message: err.message });
-    return res.status(500).json({ message: "Unable to send verification email right now. Please try again." });
+    res.status(500).json({ message: err.message });
   }
 };
 

@@ -23,7 +23,6 @@ router.delete("/me", protect, deleteAccount);
 router.put("/:id/follow", protect, followUser);
 router.put("/bookmarks/:pollId", protect, toggleBookmark);
 
-// keep this LAST - it's a catch-all for /api/users/:username public profiles
 router.get("/:username", optionalAuth, getUserByUsername);
 
 export default router;
