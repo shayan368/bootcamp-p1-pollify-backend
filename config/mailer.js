@@ -1,15 +1,39 @@
 import nodemailer from "nodemailer";
 
-// transporter
+const port = Number(process.env.SMTP_PORT) || 465;
+
+// transporter with explicit timeouts and SSL/TLS configuration
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: Number(process.env.SMTP_PORT) === 465,
-  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  host: process.env.SMTP_HOST || "smtp.gmail.com",
+  port: port,
+  secure: port === 465,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+  connectionTimeout: 10000, // 10 seconds max connection timeout
+  greetingTimeout: 5000,
+  socketTimeout: 15000,
+  tls: {
+    rejectUnauthorized: false,
+  },
+});
+
+// verify SMTP configuration on startup
+transporter.verify((error) => {
+  if (error) {
+    console.error("❌ Mailer SMTP connection failed:", error.message);
+  } else {
+    console.log("✅ Mailer SMTP connection verified successfully.");
+  }
 });
 
 // send 6 digit otp via email
 export const sendOtpEmail = async (to, otp, reason = "verify your email") => {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    throw new Error("SMTP credentials (SMTP_USER / SMTP_PASS) are missing from server environment variables.");
+  }
+
   await transporter.sendMail({
     from: `"Pollify" <${process.env.EMAIL_FROM || process.env.SMTP_USER}>`,
     to,
@@ -23,3 +47,4 @@ export const sendOtpEmail = async (to, otp, reason = "verify your email") => {
       </div>`,
   });
 };
+

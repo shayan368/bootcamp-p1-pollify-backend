@@ -27,10 +27,7 @@ export const register = async (req, res) => {
     }
 
     const exist = await User.findOne({ where: { [Op.or]: [{ email }, { username }] } });
-    if (exist) {
-      return res.status(400).json({ message: "Email or username already taken" });
-    }
-
+    
     let avatar = "";
     if (req.file) {
       try {
@@ -41,6 +38,31 @@ export const register = async (req, res) => {
     }
 
     const otp = generateOtp();
+
+    if (exist) {
+      // If user exists but is NOT verified, allow re-registration / updating details & sending new OTP
+      if (!exist.isVerified) {
+        exist.name = name;
+        exist.password = password; // beforeSave hook hashes password
+        if (avatar) exist.avatar = avatar;
+        exist.otp = otp;
+        exist.otpExpires = otpExpiry();
+        await exist.save();
+
+        try {
+          await sendOtpEmail(email, otp, "verify your Pollify account");
+        } catch (emailErr) {
+          console.error("❌ Failed to send OTP email during re-registration:", emailErr.message);
+          return res.status(500).json({
+            message: "Account created, but failed to send OTP email. Please check server SMTP configuration (SMTP_USER / SMTP_PASS).",
+          });
+        }
+        return res.status(200).json({ needsVerification: true, email });
+      }
+
+      return res.status(400).json({ message: "Email or username already taken" });
+    }
+
     await User.create({
       name,
       email,
@@ -51,7 +73,14 @@ export const register = async (req, res) => {
       otpExpires: otpExpiry(),
     });
 
-    await sendOtpEmail(email, otp, "verify your Pollify account");
+    try {
+      await sendOtpEmail(email, otp, "verify your Pollify account");
+    } catch (emailErr) {
+      console.error("❌ Failed to send OTP email during registration:", emailErr.message);
+      return res.status(500).json({
+        message: "Account created, but failed to send OTP email. Please check server SMTP configuration.",
+      });
+    }
 
     res.status(201).json({ needsVerification: true, email });
   } catch (err) {
@@ -91,7 +120,15 @@ export const resendOtp = async (req, res) => {
     user.otpExpires = otpExpiry();
     await user.save();
 
-    await sendOtpEmail(user.email, user.otp, "verify your Pollify account");
+    try {
+      await sendOtpEmail(user.email, user.otp, "verify your Pollify account");
+    } catch (emailErr) {
+      console.error("❌ Failed to send OTP email on resend:", emailErr.message);
+      return res.status(500).json({
+        message: "Failed to send OTP email. Please check server SMTP configuration.",
+      });
+    }
+
     res.json({ message: "OTP sent" });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -107,9 +144,19 @@ export const login = async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password" });
     }
     if (!user.isVerified) {
+      user.otp = generateOtp();
+      user.otpExpires = otpExpiry();
+      await user.save();
+
+      try {
+        await sendOtpEmail(user.email, user.otp, "verify your Pollify account");
+      } catch (emailErr) {
+        console.error("❌ Failed to send OTP email on login attempt:", emailErr.message);
+      }
+
       return res
         .status(403)
-        .json({ message: "Please verify your email first", needsVerification: true, email });
+        .json({ message: "Please verify your email first. A new OTP has been sent to your email.", needsVerification: true, email });
     }
     res.json({ token: makeToken(user.id), user: clean(user) });
   } catch (err) {
