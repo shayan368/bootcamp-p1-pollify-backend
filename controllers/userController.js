@@ -17,45 +17,99 @@ const clean = (u) => ({
   bio: u.bio,
 });
 
+const normalizeEmail = (value) => (value || "").trim().toLowerCase();
+const normalizeUsername = (value) => (value || "").trim().toLowerCase();
+
+const withTimeout = (promise, ms, message) =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+
 // @route POST /api/auth/register
 // register a user and send an otp to their email
 export const register = async (req, res) => {
   try {
-    const { name, email, username, password } = req.body;
+    const name = (req.body.name || "").trim();
+    const email = normalizeEmail(req.body.email);
+    const username = normalizeUsername(req.body.username);
+    const password = req.body.password;
+
     if (!name || !email || !username || !password) {
       return res.status(400).json({ message: "All fields are required" });
     }
 
-    const exist = await User.findOne({ where: { [Op.or]: [{ email }, { username }] } });
-    if (exist) {
-      return res.status(400).json({ message: "Email or username already taken" });
+    if (String(password).length < 8) {
+      return res.status(400).json({ message: "Password must be at least 8 characters" });
     }
 
-    let avatar = "";
-    if (req.file) {
-      try {
-        avatar = await uploadToCloudinary(req.file.buffer);
-      } catch (e) {
-        console.warn("Avatar upload skipped:", e.message);
+    const existingByEmail = await User.findOne({ where: { email } });
+    const existingByUsername = await User.findOne({ where: { username } });
+
+    if (existingByEmail && existingByUsername && existingByEmail.id !== existingByUsername.id) {
+      return res.status(409).json({ message: "Email or username already taken" });
+    }
+
+    const existingUser = existingByEmail || existingByUsername;
+    if (existingUser) {
+      if (existingUser.isVerified) {
+        return res.status(409).json({ message: "Email or username already taken" });
       }
+
+      const otp = generateOtp();
+      existingUser.otp = otp;
+      existingUser.otpExpires = otpExpiry();
+      existingUser.isVerified = false;
+      await existingUser.save();
+
+      try {
+        await withTimeout(sendOtpEmail(existingUser.email, otp, "verify your Pollify account"), 15000, "OTP email delivery timed out");
+      } catch (mailErr) {
+        console.error("[auth/register] failed to resend OTP for existing user", {
+          email: existingUser.email,
+          message: mailErr.message,
+        });
+        return res.status(502).json({ message: "Unable to send verification email right now. Please try again later." });
+      }
+
+      return res.status(200).json({ needsVerification: true, email: existingUser.email });
     }
 
     const otp = generateOtp();
-    await User.create({
+    const user = await User.create({
       name,
       email,
       username,
       password,
-      avatar,
       otp,
       otpExpires: otpExpiry(),
     });
 
-    await sendOtpEmail(email, otp, "verify your Pollify account");
+    try {
+      await withTimeout(sendOtpEmail(user.email, otp, "verify your Pollify account"), 15000, "OTP email delivery timed out");
+    } catch (mailErr) {
+      await user.destroy();
+      console.error("[auth/register] failed to send OTP for new user", {
+        email: user.email,
+        message: mailErr.message,
+      });
+      return res.status(502).json({ message: "Unable to send verification email right now. Please try again later." });
+    }
 
-    res.status(201).json({ needsVerification: true, email });
+    return res.status(201).json({ needsVerification: true, email: user.email });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("[auth/register] unexpected error", { message: err.message });
+    if (!res.headersSent) {
+      return res.status(500).json({ message: "Registration failed. Please try again." });
+    }
   }
 };
 
