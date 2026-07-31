@@ -296,9 +296,42 @@ export const changePassword = async (req, res) => {
   }
 };
 
+// @route POST /api/users/request-delete-account
+export const requestDeleteAccount = async (req, res) => {
+  try {
+    const user = await User.findByPk(req.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const otp = generateOtp();
+    console.log(`🔑 [OTP GENERATED (DELETE ACCOUNT)] for ${user.email}: ${otp}`);
+    user.otp = otp;
+    user.otpExpires = otpExpiry();
+    await user.save();
+
+    try {
+      await sendOtpEmail(user.email, user.otp, "delete your Pollify account");
+    } catch (emailErr) {
+      console.error("⚠️ Could not deliver OTP email (SMTP connection blocked):", emailErr.message);
+      console.log(`💡 [FALLBACK] Use console OTP for ${user.email}: ${otp}`);
+    }
+
+    res.json({ message: "OTP sent" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 // @route DELETE /api/users/me
 export const deleteAccount = async (req, res) => {
   try {
+    const { otp } = req.body;
+    const user = await User.findByPk(req.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (!otpValid(user, otp)) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+
     const id = req.userId;
     const myPolls = await Poll.findAll({ where: { creatorId: id }, attributes: ["id"] });
     const pollIds = myPolls.map((p) => p.id);

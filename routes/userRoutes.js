@@ -8,6 +8,7 @@ import {
   updateProfile,
   changePassword,
   deleteAccount,
+  requestDeleteAccount,
   followUser,
   toggleBookmark,
 } from "../controllers/userController.js";
@@ -18,6 +19,7 @@ router.get("/me", protect, getMe);
 router.get("/me/bookmarks", protect, getMyBookmarks);
 router.put("/profile", protect, upload.single("avatar"), updateProfile);
 router.put("/change-password", protect, changePassword);
+router.post("/request-delete-account", protect, requestDeleteAccount);
 router.delete("/me", protect, deleteAccount);
 
 router.put("/:id/follow", protect, followUser);
