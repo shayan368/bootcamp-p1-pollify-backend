@@ -36,15 +36,18 @@ export const createPoll = async (req, res) => {
 
     // handle option image uploads for "image" type polls (fields named option_0, option_1, ...)
     if (type === "image" && req.files && req.files.length) {
-      for (const file of req.files) {
-        const idx = Number(file.fieldname.replace("option_", ""));
-        try {
-          const url = await uploadToCloudinary(file.buffer);
-          if (options[idx]) options[idx].image = url;
-        } catch (e) {
-          console.warn("Option image upload skipped:", e.message);
-        }
-      }
+      await Promise.all(
+        req.files.map(async (file) => {
+          if (!file.fieldname.startsWith("option_")) return;
+          const idx = Number(file.fieldname.replace("option_", ""));
+          try {
+            const url = await uploadToCloudinary(file.buffer);
+            if (options[idx]) options[idx].image = url;
+          } catch (e) {
+            console.warn("Option image upload skipped:", e.message);
+          }
+        })
+      );
     }
 
     const poll = await Poll.create({

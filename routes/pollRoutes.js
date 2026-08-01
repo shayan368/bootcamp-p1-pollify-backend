@@ -15,7 +15,7 @@ import { addComment, getComments } from "../controllers/commentController.js";
 
 const router = express.Router();
 
-router.post("/", protect, upload.array("images", 6), createPoll);
+router.post("/", protect, upload.any(), createPoll);
 router.get("/", optionalAuth, getPolls);
 
 
