@@ -1,4 +1,5 @@
 import { Sequelize } from "sequelize";
+import mysql2 from "mysql2";
 import "dotenv/config";
 
 const isLocal =
@@ -20,6 +21,7 @@ export const sequelize = new Sequelize(
     host: process.env.DB_HOST || "localhost",
     port: Number(process.env.DB_PORT) || 3306,
     dialect: "mysql",
+    dialectModule: mysql2, // Explicitly provide mysql2 so Vercel includes it in the serverless bundle
     dialectOptions: useSSL
       ? {
           ssl: {
