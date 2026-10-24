@@ -51,6 +51,14 @@ User.init(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    resetPasswordToken: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    resetPasswordExpires: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
   },
   {
     sequelize,

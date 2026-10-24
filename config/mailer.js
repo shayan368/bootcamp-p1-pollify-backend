@@ -52,17 +52,9 @@ if (
   });
 }
 
-// Send 6 digit OTP via email (Supports Brevo HTTP API, Resend HTTP API, and Nodemailer SMTP fallback)
-export const sendOtpEmail = async (to, otp, reason = "verify your email") => {
-  const htmlContent = `
-    <div style="font-family:Inter,Arial,sans-serif;max-width:440px;margin:auto;padding:24px;border:1px solid #e2e8f0;border-radius:16px">
-      <h2 style="color:#4f46e5;margin:0 0 8px">Pollify</h2>
-      <p style="color:#475569">Use this code to ${reason}:</p>
-      <div style="font-size:34px;font-weight:800;letter-spacing:8px;color:#0f172a;margin:16px 0">${otp}</div>
-      <p style="color:#94a3b8;font-size:13px">This code expires in 10 minutes. If you didn't request it, ignore this email.</p>
-    </div>`;
-
-  // 1. Brevo HTTP API over Port 443 (HTTPS - Never blocked by Railway)
+// Generic email sender supporting Brevo HTTP API, Resend HTTP API, and Nodemailer SMTP fallback
+const sendMailMessage = async ({ to, subject, htmlContent }) => {
+  // 1. Brevo HTTP API over Port 443 (HTTPS - Never blocked by Railway/Vercel)
   const brevoApiKey = process.env.BREVO_API_KEY || (process.env.SMTP_HOST?.includes("brevo") ? process.env.SMTP_PASS : null);
   if (brevoApiKey) {
     try {
@@ -76,13 +68,13 @@ export const sendOtpEmail = async (to, otp, reason = "verify your email") => {
         body: JSON.stringify({
           sender: { name: "Pollify", email: senderEmail },
           to: [{ email: to }],
-          subject: `${otp} is your Pollify code`,
-          htmlContent: htmlContent,
+          subject,
+          htmlContent,
         }),
       });
 
       if (response.ok) {
-        console.log(`✉️ OTP Email sent successfully via Brevo HTTP API to ${to}`);
+        console.log(`✉️ Email ("${subject}") sent successfully via Brevo HTTP API to ${to}`);
         return;
       }
       const errData = await response.json().catch(() => ({}));
@@ -103,7 +95,7 @@ export const sendOtpEmail = async (to, otp, reason = "verify your email") => {
       body: JSON.stringify({
         from: process.env.EMAIL_FROM || "Pollify <onboarding@resend.dev>",
         to: [to],
-        subject: `${otp} is your Pollify code`,
+        subject,
         html: htmlContent,
       }),
     });
@@ -113,7 +105,7 @@ export const sendOtpEmail = async (to, otp, reason = "verify your email") => {
       throw new Error(errData.message || `Resend API returned status ${response.status}`);
     }
 
-    console.log(`✉️ OTP Email sent successfully via Resend API to ${to}`);
+    console.log(`✉️ Email ("${subject}") sent successfully via Resend API to ${to}`);
     return;
   }
 
@@ -125,11 +117,63 @@ export const sendOtpEmail = async (to, otp, reason = "verify your email") => {
   await transporter.sendMail({
     from: `"Pollify" <${process.env.EMAIL_FROM || process.env.SMTP_USER}>`,
     to,
-    subject: `${otp} is your Pollify code`,
+    subject,
     html: htmlContent,
   });
 
-  console.log(`✉️ OTP Email sent successfully via SMTP to ${to}`);
+  console.log(`✉️ Email ("${subject}") sent successfully via SMTP to ${to}`);
+};
+
+// Send 6 digit OTP via email
+export const sendOtpEmail = async (to, otp, reason = "verify your email") => {
+  const htmlContent = `
+    <div style="font-family:Inter,Arial,sans-serif;max-width:440px;margin:auto;padding:24px;border:1px solid #e2e8f0;border-radius:16px;background-color:#ffffff">
+      <h2 style="color:#10b981;margin:0 0 8px">Pollify</h2>
+      <p style="color:#475569">Use this code to ${reason}:</p>
+      <div style="font-size:34px;font-weight:800;letter-spacing:8px;color:#0f172a;margin:16px 0">${otp}</div>
+      <p style="color:#94a3b8;font-size:13px">This code expires in 10 minutes. If you didn't request it, ignore this email.</p>
+    </div>`;
+
+  await sendMailMessage({
+    to,
+    subject: `${otp} is your Pollify code`,
+    htmlContent,
+  });
+};
+
+// Send Password Reset Link email
+export const sendResetPasswordEmail = async (to, resetLink, resetToken) => {
+  const htmlContent = `
+    <div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:auto;padding:32px;border:1px solid #e2e8f0;border-radius:16px;background-color:#ffffff">
+      <h2 style="color:#10b981;margin:0 0 12px;font-size:24px;font-weight:800">Pollify</h2>
+      <h3 style="color:#0f172a;margin:0 0 12px;font-size:18px">Reset your password</h3>
+      <p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 20px">
+        We received a request to reset the password for your Pollify account. Click the button below to choose a new password. The link will open in a new tab:
+      </p>
+      <div style="text-align:center;margin:28px 0">
+        <a href="${resetLink}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background-color:#10b981;color:#000000;font-weight:700;font-size:15px;padding:12px 28px;border-radius:8px;text-decoration:none">
+          Create New Password →
+        </a>
+      </div>
+      <p style="color:#64748b;font-size:13px;line-height:1.5;margin:20px 0 8px">
+        If the button doesn't work, copy and paste this link into your browser:
+      </p>
+      <p style="word-break:break-all;font-size:12px;margin:0 0 20px">
+        <a href="${resetLink}" target="_blank" rel="noopener noreferrer" style="color:#10b981;text-decoration:underline">
+          ${resetLink}
+        </a>
+      </p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0" />
+      <p style="color:#94a3b8;font-size:12px;line-height:1.4;margin:0">
+        This password reset link will expire in 15 minutes. If you did not request a password reset, you can safely ignore this email — your account remains secure.
+      </p>
+    </div>`;
+
+  await sendMailMessage({
+    to,
+    subject: "Reset your Pollify password",
+    htmlContent,
+  });
 };
 
 

@@ -1,9 +1,10 @@
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { Op } from "sequelize";
 import { User, Poll, PollOption, Vote, Comment, Bookmark, Follow } from "../models/index.js";
 import { uploadToCloudinary } from "../config/cloudinary.js";
 import { generateOtp, otpExpiry, otpValid } from "../utils/otp.js";
-import { sendOtpEmail } from "../config/mailer.js";
+import { sendOtpEmail, sendResetPasswordEmail } from "../config/mailer.js";
 
 const makeToken = (id) => jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "7d" });
 
@@ -158,6 +159,100 @@ export const login = async (req, res) => {
         .json({ message: "Please verify your email first. A new OTP has been sent to your email.", needsVerification: true, email });
     }
     res.json({ token: makeToken(user.id), user: clean(user) });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// @route POST /api/auth/forgot-password
+// Send a password reset link to user's email
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: "Email address is required" });
+    }
+
+    const user = await User.findOne({ where: { email: email.toLowerCase().trim() } });
+    if (!user) {
+      return res.status(404).json({ message: "No account found with this email address" });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes expiry
+    await user.save();
+
+    // Dynamically resolve frontend client origin
+    const rawOrigin = req.headers.origin || process.env.CLIENT_URL || "http://localhost:5173";
+    const origin = rawOrigin.split(",")[0].trim().replace(/\/$/, "");
+    const resetLink = `${origin}/reset-password?token=${resetToken}&email=${encodeURIComponent(user.email)}`;
+
+    console.log(`🔑 [PASSWORD RESET LINK] for ${user.email}: ${resetLink}`);
+    console.log(`💡 [RESET TOKEN]: ${resetToken}`);
+
+    try {
+      await sendResetPasswordEmail(user.email, resetLink, resetToken);
+    } catch (emailErr) {
+      console.error("⚠️ Could not deliver password reset email:", emailErr.message);
+      console.log(`💡 [FALLBACK] Use console link for ${user.email}: ${resetLink}`);
+    }
+
+    res.json({
+      message: "Password reset link sent to your email. Check your inbox.",
+      email: user.email,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// @route POST /api/auth/reset-password
+// Reset password using the token sent via email, and automatically log the user in
+export const resetPassword = async (req, res) => {
+  try {
+    const { token, email, password } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ message: "Reset token is required" });
+    }
+
+    if (!password || password.length < 8) {
+      return res.status(400).json({ message: "Password must be at least 8 characters long" });
+    }
+
+    const whereClause = {
+      resetPasswordToken: token,
+      resetPasswordExpires: { [Op.gt]: new Date() },
+    };
+
+    if (email) {
+      whereClause.email = email.toLowerCase().trim();
+    }
+
+    const user = await User.findOne({ where: whereClause });
+    if (!user) {
+      return res.status(400).json({
+        message: "Invalid or expired password reset link. Please request a new one.",
+      });
+    }
+
+    // Update password (beforeUpdate hook will hash it with bcrypt)
+    user.password = password;
+    user.resetPasswordToken = null;
+    user.resetPasswordExpires = null;
+    user.isVerified = true;
+    user.otp = null;
+    user.otpExpires = null;
+    await user.save();
+
+    console.log(`✅ [PASSWORD RESET SUCCESS] for user: ${user.email}`);
+
+    res.json({
+      message: "Password reset successfully. You are now logged in.",
+      token: makeToken(user.id),
+      user: clean(user),
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
