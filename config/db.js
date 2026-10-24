@@ -1,32 +1,58 @@
 import { Sequelize } from "sequelize";
 import "dotenv/config";
 
-// Connects to MySQL running under XAMPP (via phpMyAdmin's underlying server).
-// Default XAMPP MySQL: host=localhost, user=root, password="", port=3306.
+const isLocal =
+  !process.env.DB_HOST ||
+  process.env.DB_HOST === "localhost" ||
+  process.env.DB_HOST === "127.0.0.1";
+
+// Enable SSL for remote MySQL hosts like Aiven unless explicitly disabled via DB_SSL=false
+const useSSL =
+  process.env.DB_SSL !== undefined
+    ? process.env.DB_SSL === "true"
+    : !isLocal;
+
 export const sequelize = new Sequelize(
   process.env.DB_NAME,
   process.env.DB_USER,
   process.env.DB_PASS,
   {
     host: process.env.DB_HOST || "localhost",
-    port: process.env.DB_PORT || 3306,
+    port: Number(process.env.DB_PORT) || 3306,
     dialect: "mysql",
-    logging: false,
+    dialectOptions: useSSL
+      ? {
+          ssl: {
+            require: true,
+            rejectUnauthorized: false, // Required for Aiven SSL certificates in serverless
+          },
+        }
+      : {},
+    pool: {
+      max: 5,
+      min: 0,
+      acquire: 30000,
+      idle: 10000,
+    },
+    logging: process.env.NODE_ENV === "development" ? console.log : false,
   }
 );
 
+// Cache connection promise/status across serverless invocations
+let isConnected = false;
+
 export const connectDB = async () => {
+  if (isConnected) {
+    return sequelize;
+  }
+
   try {
     await sequelize.authenticate();
-    console.log("MySQL connected");
-
-    // creates the database tables from the models if they don't exist yet,
-    // and adds any missing columns. Safe to leave on in development.
-    // In production, use proper migrations instead of sync({ alter: true }).
-    await sequelize.sync({ alter: true });
-    console.log("Models synced");
+    isConnected = true;
+    console.log("MySQL connected successfully");
+    return sequelize;
   } catch (err) {
     console.error(`MySQL connection error: ${err.message}`);
-    process.exit(1);
+    throw err;
   }
 };

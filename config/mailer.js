@@ -35,7 +35,14 @@ const transporter = nodemailer.createTransport(
       }
 );
 
-if (!process.env.RESEND_API_KEY && process.env.SMTP_USER && process.env.SMTP_PASS) {
+// Only verify SMTP connection during local development (avoid blocking serverless cold starts)
+if (
+  !process.env.VERCEL &&
+  process.env.NODE_ENV !== "production" &&
+  !process.env.RESEND_API_KEY &&
+  process.env.SMTP_USER &&
+  process.env.SMTP_PASS
+) {
   transporter.verify((error) => {
     if (error) {
       console.warn("⚠️ SMTP Mailer notice:", error.message);

@@ -6,6 +6,7 @@ import Vote from "./Vote.js";
 import Comment from "./Comment.js";
 import Bookmark from "./Bookmark.js";
 import Follow from "./Follow.js";
+import Notification from "./Notification.js";
 
 // ---- Poll belongs to a creator (User) ----
 User.hasMany(Poll, { foreignKey: "creatorId", as: "polls", onDelete: "CASCADE" });
@@ -47,4 +48,11 @@ User.belongsToMany(User, {
   otherKey: "followerId",
 });
 
-export { sequelize, User, Poll, PollOption, Vote, Comment, Bookmark, Follow };
+// ---- Notifications ----
+User.hasMany(Notification, { foreignKey: "recipientId", as: "notifications", onDelete: "CASCADE" });
+Notification.belongsTo(User, { foreignKey: "recipientId", as: "recipient", onDelete: "CASCADE" });
+Notification.belongsTo(User, { foreignKey: "actorId", as: "actor", onDelete: "CASCADE" });
+Notification.belongsTo(Poll, { foreignKey: "pollId", as: "poll", onDelete: "CASCADE" });
+
+export { sequelize, User, Poll, PollOption, Vote, Comment, Bookmark, Follow, Notification };
+
