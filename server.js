@@ -72,6 +72,10 @@ app.get("/", (req, res) => {
   res.send("Pollify API is running");
 });
 
+app.get("/api", (req, res) => {
+  res.json({ message: "Pollify API is running", status: "ok" });
+});
+
 app.get("/api/health", async (req, res) => {
   try {
     await sequelize.authenticate();
